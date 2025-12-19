@@ -541,7 +541,7 @@ describe("saveLilypond Methods", () => {
             </div>
         `;
 
-        // Mock document functions
+        // Mock document function
         global.docById = jest.fn(id => document.getElementById(id));
         jest.spyOn(document, "getElementById").mockImplementation(id =>
             document.querySelector(`#${id}`)
