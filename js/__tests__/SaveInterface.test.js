@@ -562,7 +562,7 @@ describe("saveLilypond Methods", () => {
         });
         global.jQuery.noConflict = jest.fn().mockImplementation(() => global.jQuery);
 
-        // Mock activity objects
+        // Mock activity object
         activity = {
             PlanetInterface: {
                 getCurrentProjectName: jest.fn(() => "Test Project")
