@@ -27,45 +27,37 @@ global._ = msg => msg; // Mock translation function
 global.getDrumSynthName = jest.fn();
 
 // Mock the Window Manager
-global.window = {
-    widgetWindows: {
-        windowFor: jest.fn().mockReturnValue({
-            clear: jest.fn(),
-            show: jest.fn(),
-            addButton: jest.fn().mockReturnValue({ onclick: () => {} }),
-            addInputButton: jest.fn().mockImplementation(val => ({
-                value: val,
-                addEventListener: jest.fn()
-            })),
-            getWidgetBody: jest.fn().mockReturnValue({
-                appendChild: jest.fn(),
-                insertRow: jest.fn().mockReturnValue({
-                    insertCell: jest.fn().mockReturnValue({
-                        appendChild: jest.fn(),
-                        setAttribute: jest.fn()
-                    })
+window.widgetWindows = {
+    windowFor: jest.fn().mockReturnValue({
+        clear: jest.fn(),
+        show: jest.fn(),
+        addButton: jest.fn().mockReturnValue({ onclick: () => {} }),
+        addInputButton: jest.fn().mockImplementation(val => ({
+            value: val,
+            addEventListener: jest.fn()
+        })),
+        getWidgetBody: jest.fn().mockReturnValue({
+            appendChild: jest.fn(),
+            insertRow: jest.fn().mockReturnValue({
+                insertCell: jest.fn().mockReturnValue({
+                    appendChild: jest.fn(),
+                    setAttribute: jest.fn()
                 })
-            }),
-            sendToCenter: jest.fn()
-        })
-    }
-};
-
-// Mock Document (for creating the canvas)
-global.document = {
-    createElement: jest.fn().mockReturnValue({
-        style: {},
-        getContext: jest.fn().mockReturnValue({
-            clearRect: jest.fn(),
-            beginPath: jest.fn(),
-            fillStyle: "",
-            ellipse: jest.fn(),
-            fill: jest.fn(),
-            closePath: jest.fn()
-        })
+            })
+        }),
+        sendToCenter: jest.fn(),
+        onclose: jest.fn()
     })
 };
-
+// Mock Document (for creating the canvas)
+HTMLCanvasElement.prototype.getContext = jest.fn().mockReturnValue({
+    clearRect: jest.fn(),
+    beginPath: jest.fn(),
+    fillStyle: "",
+    ellipse: jest.fn(),
+    fill: jest.fn(),
+    closePath: jest.fn()
+});
 describe("Tempo Widget", () => {
     let tempoWidget;
     let mockActivity;
@@ -489,6 +481,135 @@ describe("Tempo Widget", () => {
 
         test("should have correct YRADIUS", () => {
             expect(Tempo.YRADIUS).toBe(75);
+        });
+    });
+    describe("init() and UI Setup", () => {
+        beforeEach(() => {
+            tempoWidget.BPMs = [120];
+        });
+
+        test("should initialize the widget window and UI elements", () => {
+            tempoWidget.init(mockActivity);
+
+            expect(window.widgetWindows.windowFor).toHaveBeenCalledWith(
+                tempoWidget,
+                "tempo",
+                "tempo",
+                true
+            );
+
+            const mockWindow = window.widgetWindows.windowFor();
+
+            expect(mockWindow.clear).toHaveBeenCalled();
+            expect(mockWindow.show).toHaveBeenCalled();
+            expect(mockWindow.getWidgetBody).toHaveBeenCalled();
+            expect(mockWindow.getWidgetBody().appendChild).toHaveBeenCalled();
+            expect(mockWindow.addButton).toHaveBeenCalled();
+            expect(mockWindow.addInputButton).toHaveBeenCalled();
+        });
+
+        test("should bind event listeners to the BPM inputs", () => {
+            tempoWidget.init(mockActivity);
+            const mockWindow = window.widgetWindows.windowFor();
+            const mockInput = mockWindow.addInputButton.mock.results[0].value;
+
+            expect(mockInput.addEventListener).toHaveBeenCalledWith("keyup", expect.any(Function));
+        });
+    });
+
+    describe("_draw() and canvas rendering", () => {
+        beforeEach(() => {
+            const mockCanvas = document.createElement("canvas");
+            mockCanvas.width = Tempo.TEMPOWIDTH;
+            mockCanvas.height = Tempo.TEMPOHEIGHT;
+
+            tempoWidget.tempoCanvases = [mockCanvas];
+            tempoWidget.BPMs = [120];
+            tempoWidget._directions = [1];
+            tempoWidget._intervals = [500];
+            tempoWidget.activity = mockActivity;
+
+            tempoWidget._widgetFirstTimes = [Date.now() - 100];
+            tempoWidget._widgetNextTimes = [Date.now() + 400];
+        });
+
+        test("should clear previous frame and draw ellipse", () => {
+            tempoWidget._draw();
+            const ctx = tempoWidget.tempoCanvases[0].getContext("2d");
+
+            expect(ctx.clearRect).toHaveBeenCalled();
+            expect(ctx.beginPath).toHaveBeenCalled();
+            expect(ctx.ellipse).toHaveBeenCalled();
+            expect(ctx.fill).toHaveBeenCalled();
+            expect(ctx.closePath).toHaveBeenCalled();
+        });
+
+        test("should trigger synth when a beat hits (direction change)", () => {
+            tempoWidget._widgetNextTimes[0] = Date.now() - 10;
+            tempoWidget._draw();
+
+            expect(mockActivity.logo.synth.trigger).toHaveBeenCalled();
+            expect(tempoWidget._directions[0]).toBe(-1);
+            expect(tempoWidget._widgetNextTimes[0]).toBeGreaterThan(Date.now());
+        });
+    });
+
+    // --- Canvas Tap Tempo (onclick) tests ---
+    describe("Canvas Tap Tempo (onclick)", () => {
+        beforeEach(() => {
+            // Give it a default BPM and run init() to attach the onclick listeners
+            tempoWidget.BPMs = [100];
+            tempoWidget.init(mockActivity);
+        });
+
+        test("should set _firstClickTime on the first tap", () => {
+            const canvas = tempoWidget.tempoCanvases[0];
+
+            // Simulate the first click
+            canvas.onclick();
+
+            expect(tempoWidget._firstClickTime).not.toBeNull();
+        });
+
+        test("should calculate correct BPM on the second tap", () => {
+            const canvas = tempoWidget.tempoCanvases[0];
+
+            // Set fake system time to 1000ms
+            jest.setSystemTime(1000);
+            canvas.onclick(); // First tap
+
+            // Advance time by 500ms (Half a second per beat = 120 BPM)
+            jest.setSystemTime(1500);
+            canvas.onclick(); // Second tap
+
+            expect(tempoWidget.BPMs[0]).toBe(120);
+            expect(tempoWidget.BPMInputs[0].value).toBe(120);
+
+            // Should reset the timer for the next tap
+            expect(tempoWidget._firstClickTime).toBeNull();
+        });
+
+        test("should ignore invalid tap speeds and reset timer", () => {
+            const canvas = tempoWidget.tempoCanvases[0];
+
+            jest.setSystemTime(1000);
+            canvas.onclick();
+
+            // Advance time by only 10ms (Way too fast, > 1000 BPM)
+            jest.setSystemTime(1010);
+            canvas.onclick();
+
+            // BPM should not change
+            expect(tempoWidget.BPMs[0]).toBe(100);
+
+            // The first click time should update to the new click time
+            expect(tempoWidget._firstClickTime).toBe(1010);
+        });
+    });
+    describe("stop() / cleanup edge cases", () => {
+        test("should handle stop when interval is already null", () => {
+            tempoWidget._intervalID = null;
+            expect(() => tempoWidget.pause()).not.toThrow();
         });
     });
 });
