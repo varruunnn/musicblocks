@@ -4,6 +4,9 @@ on:
   push:
     paths:
       - 'po/**/*.po'
+  pull_request:
+    paths:
+      - 'po/**/*.po'
 
 jobs:
   convert-and-verify:
@@ -24,7 +27,13 @@ jobs:
       - name: Find changed .po files
         id: find_po
         run: |
-          git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^po/.*\.po$' > changed_po_files.txt || true
+          # 🚀 FIX 2: Safely handle git diffs for both Pushes and PRs
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep '^po/.*\.po$' > changed_po_files.txt || true
+          else
+            git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^po/.*\.po$' > changed_po_files.txt || true
+          fi
+          
           cat changed_po_files.txt
           echo "po_files<<EOF" >> $GITHUB_OUTPUT
           echo "$(cat changed_po_files.txt)" >> $GITHUB_OUTPUT
