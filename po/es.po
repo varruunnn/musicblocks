@@ -8607,3 +8607,4 @@ msgstr "mover"
 #~ msgid "Current Interval"
 #~ msgstr "intervalo actual"
 
+# This is a test for the CI bug
